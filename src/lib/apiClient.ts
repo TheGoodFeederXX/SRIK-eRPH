@@ -64,6 +64,8 @@ export const api = {
     register: (email: string, password: string, name: string) =>
         request<SessionResponse>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name }) }),
     logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+    forgotPassword: (email: string) =>
+        request<{ ok: boolean }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
     changePassword: (currentPassword: string, newPassword: string) =>
         request<{ ok: boolean }>('/auth/change-password', {
             method: 'POST',

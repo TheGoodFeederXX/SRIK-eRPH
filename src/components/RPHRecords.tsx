@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { Edit2, Trash2, Printer, Search, Loader2, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Edit2, Trash2, Printer, Search, Loader2, Download, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { RPHRecord } from '../types';
-import ExcelJS from 'exceljs';
-import { generateRPH_PDF, generateBulkRPH_PDF } from '../lib/pdfGenerator';
 import { PDFReadyModal } from './PDFReadyModal';
+import { ConfirmDialog } from './Modal';
+import { useToast } from '../hooks/useToast';
 import { todayMalaysia } from '../lib/dateUtils';
+import { errorMessage } from '../lib/apiClient';
 
 interface RPHRecordsProps {
     records: RPHRecord[];
     loading?: boolean;
+    error?: string | null;
     totalCount: number;
     page: number;
     setPage: (page: number) => void;
@@ -20,201 +22,213 @@ interface RPHRecordsProps {
     onEdit: (record: RPHRecord) => void;
 }
 
+const recordLabel = (record: RPHRecord) => `${record.tarikh} ${record.kelas} ${record.subjek}`;
+
+const StatusBadge: React.FC<{ status?: RPHRecord['status'] }> = ({ status }) => (
+    <span className={`badge ${status === 'published' ? 'badge-published' : 'badge-draft'}`}>
+        {status === 'published' ? 'Diterbitkan' : 'Draf'}
+    </span>
+);
+
+/** Windowed page numbers so the control never overflows with many pages (audit S-11). */
+const pageWindow = (current: number, total: number): number[] => {
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const start = Math.max(2, Math.min(current - 2, total - 4));
+    const pages = [1];
+    for (let i = start; i < start + 3; i += 1) pages.push(i);
+    pages.push(total);
+    return pages;
+};
+
 const RPHCard: React.FC<{
     record: RPHRecord;
     isSelected: boolean;
     onToggleSelect: (id: string) => void;
     onEdit: (record: RPHRecord) => void;
-    onDelete: (id: string) => Promise<void>;
+    onDelete: (record: RPHRecord) => void;
     onPrint: (record: RPHRecord) => void;
-}> = ({ record, isSelected, onToggleSelect, onEdit, onDelete, onPrint }) => {
-    return (
-        <motion.div
-            layout
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="glass-modern p-4 mb-4"
-        >
-            <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-3">
-                    <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => onToggleSelect(record.id)}
-                        className="w-5 h-5"
-                    />
-                    <div>
-                        <div className="font-bold text-lg font-jawi" style={{ color: 'var(--primary)' }}>{record.subjek}</div>
-                        <div className="text-sm text-slate-500">{record.kelas}</div>
-                    </div>
+}> = ({ record, isSelected, onToggleSelect, onEdit, onDelete, onPrint }) => (
+    <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0 }}
+        className="card-panel mb-3"
+    >
+        <div className="flex items-start gap-3">
+            <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => onToggleSelect(record.id)}
+                aria-label={`Pilih rekod ${recordLabel(record)}`}
+            />
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                    <strong>{record.tarikh} · {record.hari}</strong>
+                    <StatusBadge status={record.status} />
                 </div>
-                <div className={`tag-primary ${record.status === 'published' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-500'}`}>
-                    {record.status === 'published' ? 'Diterbitkan' : 'Draf'}
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                    {record.kelas} · {record.masa} · Tahun {record.tahun}
+                </p>
+                <p className="font-semibold">{record.subjek}</p>
+                {record.content?.tajukStandardKandungan && (
+                    <p className="line-clamp-2" style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                        {record.content.tajukStandardKandungan}
+                    </p>
+                )}
+                <div className="flex gap-2 mt-3">
+                    <button
+                        type="button"
+                        className="btn btn-outline btn-sm flex-1"
+                        onClick={() => onEdit(record)}
+                        aria-label={`Edit rekod ${recordLabel(record)}`}
+                    >
+                        <Edit2 size={16} aria-hidden="true" /> Edit
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-outline btn-sm flex-1"
+                        onClick={() => onDelete(record)}
+                        aria-label={`Padam rekod ${recordLabel(record)}`}
+                    >
+                        <Trash2 size={16} aria-hidden="true" /> Padam
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-primary btn-sm flex-1"
+                        onClick={() => onPrint(record)}
+                        aria-label={`Cetak rekod ${recordLabel(record)}`}
+                    >
+                        <Printer size={16} aria-hidden="true" /> Cetak
+                    </button>
                 </div>
             </div>
+        </div>
+    </motion.div>
+);
 
-            <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
-                <div>
-                    <div className="text-slate-400 font-medium">Tarikh / Hari</div>
-                    <div className="font-semibold">{record.tarikh} ({record.hari})</div>
-                </div>
-                <div>
-                    <div className="text-slate-400 font-medium">Masa</div>
-                    <div className="font-semibold">{record.masa}</div>
-                </div>
-            </div>
-
-            <div className="mb-4">
-                <div className="text-slate-400 text-xs font-medium mb-1">Tajuk / Standard Kandungan</div>
-                <div className="text-sm line-clamp-2 font-jawi" style={{ maxHeight: '3em', overflow: 'hidden' }}>
-                    {record.content?.tajukStandardKandungan || 'Tiada tajuk'}
-                </div>
-            </div>
-
-            <div className="flex gap-2 pt-3 border-t border-slate-100">
-                <button 
-                    className="btn btn-outline flex-1" 
-                    style={{ padding: '0.5rem', minHeight: '44px' }} 
-                    onClick={() => onEdit(record)}
-                >
-                    <Edit2 size={18} />
-                </button>
-                <button 
-                    className="btn btn-outline flex-1" 
-                    style={{ padding: '0.5rem', minHeight: '44px', color: '#ef4444' }} 
-                    onClick={() => {
-                        if (confirm('Adakah anda pasti mahu memadam rekod ini?')) {
-                            void onDelete(record.id).catch((err: unknown) => {
-                                alert(err instanceof Error ? err.message : 'Gagal memadam rekod.');
-                            });
-                        }
-                    }}
-                >
-                    <Trash2 size={18} />
-                </button>
-                <button 
-                    className="btn btn-primary flex-1" 
-                    style={{ padding: '0.5rem', minHeight: '44px' }} 
-                    onClick={() => onPrint(record)}
-                >
-                    <Printer size={18} />
-                </button>
-            </div>
-        </motion.div>
-    );
-};
-
-export const RPHRecords: React.FC<RPHRecordsProps> = ({ 
-    records, 
-    loading, 
+export const RPHRecords: React.FC<RPHRecordsProps> = ({
+    records,
+    loading,
+    error,
     totalCount,
     page,
     setPage,
     pageSize,
     searchTerm,
     setSearchTerm,
-    onDelete, 
-    onEdit 
+    onDelete,
+    onEdit
 }) => {
+    const { notify } = useToast();
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+    const [pendingDelete, setPendingDelete] = useState<RPHRecord | null>(null);
+    const [deleting, setDeleting] = useState(false);
     const [pdfModalData, setPdfModalData] = useState<{ isOpen: boolean; url: string | null; fileName: string }>({
         isOpen: false,
         url: null,
         fileName: ''
     });
 
-    // Only IDs on the current page count, so stale selections cannot produce an empty
-    // bulk PDF after paging or searching (audit F-07).
-    const selectedRecords = records.filter(r => selectedIds.includes(r.id));
-    const selectedOnPage = selectedRecords.map(r => r.id);
+    // Only IDs on the current page count, so a stale selection can never produce an
+    // empty bulk PDF after paging or searching (audit F-07).
+    const selectedRecords = records.filter((record) => selectedIds.includes(record.id));
+    const selectedOnPage = selectedRecords.map((record) => record.id);
     const isBulkPDF = selectedRecords.length > 0;
 
     const toggleSelect = (id: string) => {
-        setSelectedIds(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-        );
+        setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
     };
 
     const toggleSelectAll = () => {
         if (selectedOnPage.length === records.length && records.length > 0) {
             setSelectedIds([]);
         } else {
-            setSelectedIds(records.map(r => r.id));
+            setSelectedIds(records.map((record) => record.id));
         }
     };
 
-    const handleDownloadAll = async () => {
-        const dataToExport = records.map(rec => ({
-            'Tarikh': rec.tarikh,
-            'Hari': rec.hari,
-            'Kelas': rec.kelas,
-            'Masa': rec.masa,
-            'Subjek': rec.subjek,
-            'Tajuk / Standard Kandungan': rec.content?.tajukStandardKandungan || '',
-            'Aktiviti': rec.content?.aktiviti || '',
-            'Refleksi': rec.content?.refleksi || ''
-        }));
+    const handleDownloadExcel = async () => {
+        try {
+            const { default: ExcelJS } = await import('exceljs');
+            const dataToExport = records.map((rec) => ({
+                Tarikh: rec.tarikh,
+                Hari: rec.hari,
+                Kelas: rec.kelas,
+                Masa: rec.masa,
+                Subjek: rec.subjek,
+                'Tajuk / Standard Kandungan': rec.content?.tajukStandardKandungan || '',
+                Aktiviti: rec.content?.aktiviti || '',
+                Refleksi: rec.content?.refleksi || ''
+            }));
 
-        // exceljs replaces SheetJS 0.18.5 (GHSA-4r6h-8v6p-xvw6, GHSA-5pgg-2g8v-p4x9 — audit S-06).
-        const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet('Rekod eRPH');
-        worksheet.columns = Object.keys(dataToExport[0] ?? { Tarikh: '' }).map((header) => ({
-            header,
-            key: header,
-            width: 24,
-        }));
-        worksheet.addRows(dataToExport);
-        worksheet.getRow(1).font = { bold: true };
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Rekod eRPH');
+            worksheet.columns = Object.keys(dataToExport[0] ?? { Tarikh: '' }).map((header) => ({
+                header,
+                key: header,
+                width: 24,
+            }));
+            worksheet.addRows(dataToExport);
+            worksheet.getRow(1).font = { bold: true };
 
-        const buffer = await workbook.xlsx.writeBuffer();
-        const url = URL.createObjectURL(
-            new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+            const buffer = await workbook.xlsx.writeBuffer();
+            const url = URL.createObjectURL(
+                new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+            );
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Rekod_eRPH_Halaman_${page}_${todayMalaysia()}.xlsx`;
+            link.click();
+            URL.revokeObjectURL(url);
+            notify(`${dataToExport.length} rekod dieksport ke Excel.`);
+        } catch (err) {
+            notify(errorMessage(err), 'error');
+        }
+    };
+
+    const openPdf = async (generate: () => Promise<Blob>, fileName: string) => {
+        setIsGeneratingPDF(true);
+        try {
+            const { generateRPH_PDF, generateBulkRPH_PDF } = await import('../lib/pdfGenerator');
+            void generateRPH_PDF;
+            void generateBulkRPH_PDF;
+            const blob = await generate();
+            setPdfModalData({ isOpen: true, url: URL.createObjectURL(blob), fileName });
+        } catch (err) {
+            notify(errorMessage(err), 'error');
+        } finally {
+            setIsGeneratingPDF(false);
+        }
+    };
+
+    const handleSinglePrint = (record: RPHRecord) =>
+        openPdf(
+            async () => (await import('../lib/pdfGenerator')).generateRPH_PDF(record),
+            `eRPH_${record.tarikh}_${record.kelas.replace(/ /g, '_')}.pdf`,
         );
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `Rekod_eRPH_Halaman_${page}_${todayMalaysia()}.xlsx`;
-        link.click();
-        URL.revokeObjectURL(url);
+
+    const handleBulkPrint = () => {
+        const chosen = selectedRecords;
+        if (chosen.length === 0) return;
+        void openPdf(
+            async () => (await import('../lib/pdfGenerator')).generateBulkRPH_PDF(chosen),
+            `eRPH_Bulk_${todayMalaysia()}.pdf`,
+        );
     };
 
-    const totalPages = Math.ceil(totalCount / pageSize);
-
-    const handleDownloadPDFBulk = async () => {
-        if (selectedRecords.length === 0) return;
-        setIsGeneratingPDF(true);
-
+    const confirmDelete = async () => {
+        if (!pendingDelete) return;
+        setDeleting(true);
         try {
-            const blob = await generateBulkRPH_PDF(selectedRecords);
-            const url = URL.createObjectURL(blob);
-            const fileName = `eRPH_Bulk_${todayMalaysia()}.pdf`;
-            
-            setIsGeneratingPDF(false);
-            setPdfModalData({ isOpen: true, url, fileName });
-            setSelectedIds([]);
-        } catch (error) {
-            console.error('PDF Generation Error:', error);
-            setIsGeneratingPDF(false);
-            alert('Gagal menjana PDF. Sila cuba lagi.');
+            await onDelete(pendingDelete.id);
+            setPendingDelete(null);
+        } finally {
+            setDeleting(false);
         }
     };
 
-    const handleSinglePrint = async (record: RPHRecord) => {
-        setIsGeneratingPDF(true);
-        try {
-            const blob = await generateRPH_PDF(record);
-            const url = URL.createObjectURL(blob);
-            const fileName = `eRPH_${record.tarikh}_${record.kelas.replace(/ /g, '_')}.pdf`;
-
-            setIsGeneratingPDF(false);
-            setPdfModalData({ isOpen: true, url, fileName });
-        } catch (error) {
-            console.error('PDF Generation Error:', error);
-            setIsGeneratingPDF(false);
-            alert('Gagal menjana PDF. Sila cuba lagi.');
-        }
-    };
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
     return (
         <React.Fragment>
@@ -227,15 +241,20 @@ export const RPHRecords: React.FC<RPHRecordsProps> = ({
                 pdfUrl={pdfModalData.url}
                 fileName={pdfModalData.fileName}
             />
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="glass-card"
-                style={{ padding: '2rem' }}
-            >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+
+            <ConfirmDialog
+                open={pendingDelete !== null}
+                title="Padam rekod ini?"
+                message={pendingDelete ? `Rekod ${recordLabel(pendingDelete)} akan dipadam secara kekal.` : ''}
+                busy={deleting}
+                onCancel={() => setPendingDelete(null)}
+                onConfirm={() => void confirmDelete()}
+            />
+
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card" style={{ padding: '1.5rem' }}>
+                <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
                     <div>
-                        <h2 style={{ color: 'var(--primary)' }}>Senarai Rekod Pengajaran</h2>
+                        <h2 style={{ color: 'var(--primary)', fontSize: '1.375rem' }}>Senarai Rekod Pengajaran</h2>
                         <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
                             Jumlah rekod: <strong>{totalCount}</strong>
                         </p>
@@ -243,252 +262,240 @@ export const RPHRecords: React.FC<RPHRecordsProps> = ({
 
                     <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
                         <button
-                            className="btn btn-outline w-full md:w-auto"
-                            style={{ height: '48px' }}
-                            onClick={isBulkPDF ? handleDownloadPDFBulk : () => void handleDownloadAll()}
+                            type="button"
+                            className="btn btn-outline"
+                            onClick={() => (isBulkPDF ? handleBulkPrint() : void handleDownloadExcel())}
                             disabled={records.length === 0}
-                            title={isBulkPDF ? "Muat Turun Pilihan (PDF)" : "Muat Turun Halaman (Excel)"}
                         >
-                            <Download size={20} /> {isBulkPDF ? 'Muat Turun PDF' : 'Muat Turun Excel'}
+                            <Download size={20} aria-hidden="true" />
+                            {isBulkPDF
+                                ? `Muat Turun ${selectedRecords.length} Rekod (PDF)`
+                                : `Muat Turun Halaman Ini — ${records.length} Rekod (Excel)`}
                         </button>
-                        <div className="relative w-full md:w-[300px]">
-                            <Search style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={20} />
+                        <div className="relative w-full md:w-auto">
+                            <label htmlFor="record-search" className="field-label">Cari rekod</label>
+                            <Search
+                                aria-hidden="true"
+                                size={20}
+                                style={{ position: 'absolute', left: '0.75rem', bottom: '0.9rem', color: 'var(--text-muted)' }}
+                            />
                             <input
-                                type="text"
-                                placeholder="Cari rekod..."
-                                style={{ paddingLeft: '2.5rem', height: '48px' }}
+                                id="record-search"
+                                type="search"
+                                placeholder="Subjek, kelas, hari atau masa"
+                                className="pl-12"
                                 value={searchTerm}
-                                onChange={(e) => {
-                                    setSearchTerm(e.target.value);
-                                    setPage(1);
-                                }}
+                                onChange={(event) => setSearchTerm(event.target.value)}
+                                style={{ minWidth: '16rem' }}
                             />
                         </div>
                     </div>
                 </div>
 
-                {/* Mobile View: Card List */}
+                {error && (
+                    <p className="alert alert-error" role="alert">
+                        <AlertCircle size={18} aria-hidden="true" /> {error}
+                    </p>
+                )}
+
                 <div className="mobile-only">
-                    <AnimatePresence mode="popLayout">
-                        {loading ? (
-                            <div key="loading-mobile" className="py-10 text-center text-slate-400">
-                                <Loader2 size={40} className="animate-spin mx-auto mb-2 color-primary" style={{ color: 'var(--primary)' }} />
-                                <p>Memuatkan rekod...</p>
-                            </div>
-                        ) : records.length > 0 ? (
-                            <div className="flex flex-col">
-                                <div className="flex justify-between items-center mb-4 px-1">
-                                    <div className="text-sm font-medium text-slate-500">
-                                        Pilih Semua
-                                    </div>
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedOnPage.length === records.length && records.length > 0}
-                                        onChange={toggleSelectAll}
-                                        className="w-5 h-5"
-                                    />
-                                </div>
-                                {records.map((rec) => (
+                    {loading ? (
+                        <div className="py-10 text-center" role="status">
+                            <Loader2 size={40} className="animate-spin mx-auto mb-2" aria-hidden="true" style={{ color: 'var(--primary)' }} />
+                            <p>Memuatkan rekod…</p>
+                        </div>
+                    ) : records.length > 0 ? (
+                        <>
+                            <label className="flex items-center justify-between gap-3 mb-3" style={{ minHeight: '44px' }}>
+                                <span>Pilih semua di halaman ini</span>
+                                <input
+                                    type="checkbox"
+                                    checked={selectedOnPage.length === records.length && records.length > 0}
+                                    onChange={toggleSelectAll}
+                                    aria-label="Pilih semua rekod di halaman ini"
+                                />
+                            </label>
+                            <AnimatePresence mode="popLayout">
+                                {records.map((record) => (
                                     <RPHCard
-                                        key={rec.id}
-                                        record={rec}
-                                        isSelected={selectedIds.includes(rec.id)}
+                                        key={record.id}
+                                        record={record}
+                                        isSelected={selectedIds.includes(record.id)}
                                         onToggleSelect={toggleSelect}
                                         onEdit={onEdit}
-                                        onDelete={onDelete}
+                                        onDelete={setPendingDelete}
                                         onPrint={handleSinglePrint}
                                     />
                                 ))}
-                            </div>
-                        ) : (
-                            <div key="empty-mobile" className="py-10 text-center text-slate-400">
-                                <Search size={48} className="mx-auto mb-4 opacity-20" />
-                                <h3 className="text-lg font-bold text-slate-700">Tiada Rekod Dijumpai</h3>
-                            </div>
-                        )}
-                    </AnimatePresence>
+                            </AnimatePresence>
+                        </>
+                    ) : (
+                        <div className="py-10 text-center" style={{ color: 'var(--text-muted)' }}>
+                            <Search size={48} className="mx-auto mb-3 opacity-20" aria-hidden="true" />
+                            <h3 style={{ color: 'var(--text-main)' }}>
+                                {searchTerm ? 'Tiada rekod sepadan' : 'Belum ada rekod'}
+                            </h3>
+                            <p>{searchTerm ? `Carian “${searchTerm}” tiada keputusan.` : 'Mulakan dengan tab Rekod Baru.'}</p>
+                        </div>
+                    )}
                 </div>
 
-                {/* Desktop View: Table */}
                 <div className="table-container desktop-only">
                     <table>
+                        <caption className="sr-only" style={{ position: 'absolute', left: '-9999px' }}>
+                            Senarai rekod RPH
+                        </caption>
                         <thead>
                             <tr>
-                                <th style={{ width: '40px' }}>
+                                <th style={{ width: '56px' }}>
                                     <input
                                         type="checkbox"
                                         checked={selectedOnPage.length === records.length && records.length > 0}
                                         onChange={toggleSelectAll}
+                                        aria-label="Pilih semua rekod di halaman ini"
                                     />
                                 </th>
                                 <th>Tarikh / Hari</th>
                                 <th>Kelas / Masa</th>
                                 <th>Subjek / Tajuk</th>
+                                <th>Status</th>
                                 <th className="no-print">Tindakan</th>
                             </tr>
                         </thead>
                         <tbody>
                             <AnimatePresence mode="popLayout">
                                 {loading ? (
-                                    <motion.tr
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        exit={{ opacity: 0 }}
-                                        key="loading"
-                                    >
-                                        <td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                                            <Loader2 size={40} className="animate-spin" style={{ margin: '0 auto 1rem', color: 'var(--primary)' }} />
-                                            <p>Memuatkan rekod...</p>
+                                    <tr>
+                                        <td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }}>
+                                            <Loader2 size={40} className="animate-spin mx-auto mb-3" aria-hidden="true" style={{ color: 'var(--primary)' }} />
+                                            <p>Memuatkan rekod…</p>
                                         </td>
-                                    </motion.tr>
+                                    </tr>
                                 ) : records.length > 0 ? (
-                                    records.map((rec) => (
-                                        <motion.tr
-                                            key={rec.id}
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            exit={{ opacity: 0, x: -20 }}
-                                            layout
-                                        >
+                                    records.map((record) => (
+                                        <tr key={record.id}>
                                             <td>
                                                 <input
                                                     type="checkbox"
-                                                    checked={selectedIds.includes(rec.id)}
-                                                    onChange={() => toggleSelect(rec.id)}
+                                                    checked={selectedIds.includes(record.id)}
+                                                    onChange={() => toggleSelect(record.id)}
+                                                    aria-label={`Pilih rekod ${recordLabel(record)}`}
                                                 />
                                             </td>
                                             <td>
-                                                <div style={{ fontWeight: 600 }}>{rec.tarikh}</div>
-                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{rec.hari}</div>
+                                                <div className="font-semibold">{record.tarikh}</div>
+                                                <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{record.hari}</div>
                                             </td>
                                             <td>
-                                                <div style={{ fontWeight: 600 }}>{rec.kelas}</div>
-                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{rec.masa}</div>
+                                                <div className="font-semibold">{record.kelas}</div>
+                                                <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{record.masa}</div>
                                             </td>
                                             <td>
-                                                <div style={{ fontWeight: 600 }}>{rec.subjek}</div>
-                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.content?.tajukStandardKandungan || ''}</div>
+                                                <div className="font-semibold">{record.subjek}</div>
+                                                <div className="line-clamp-2" style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                                                    {record.content?.tajukStandardKandungan || '—'}
+                                                </div>
                                             </td>
+                                            <td><StatusBadge status={record.status} /></td>
                                             <td className="no-print">
-                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                    <button className="btn btn-outline" style={{ padding: '0.5rem' }} title="Edit" onClick={() => onEdit(rec)}>
-                                                        <Edit2 size={16} />
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-outline btn-sm"
+                                                        onClick={() => onEdit(record)}
+                                                        aria-label={`Edit rekod ${recordLabel(record)}`}
+                                                    >
+                                                        <Edit2 size={16} aria-hidden="true" /> Edit
                                                     </button>
-                                                    <button className="btn btn-outline" style={{ padding: '0.5rem', color: '#ef4444' }} title="Padam" onClick={() => {
-                                                        if (confirm('Adakah anda pasti mahu memadam rekod ini?')) {
-                                                            void onDelete(rec.id).catch((err: unknown) => {
-                                                                alert(err instanceof Error ? err.message : 'Gagal memadam rekod.');
-                                                            });
-                                                        }
-                                                    }}>
-                                                        <Trash2 size={16} />
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-outline btn-sm"
+                                                        onClick={() => setPendingDelete(record)}
+                                                        aria-label={`Padam rekod ${recordLabel(record)}`}
+                                                    >
+                                                        <Trash2 size={16} aria-hidden="true" /> Padam
                                                     </button>
-                                                    <button className="btn btn-primary" style={{ padding: '0.5rem' }} title="Cetak" onClick={() => handleSinglePrint(rec)}>
-                                                        <Printer size={16} />
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-primary btn-sm"
+                                                        onClick={() => handleSinglePrint(record)}
+                                                        aria-label={`Cetak rekod ${recordLabel(record)}`}
+                                                    >
+                                                        <Printer size={16} aria-hidden="true" /> Cetak
                                                     </button>
                                                 </div>
                                             </td>
-                                        </motion.tr>
+                                        </tr>
                                     ))
                                 ) : (
-                                    <motion.tr
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        exit={{ opacity: 0 }}
-                                        key="empty"
-                                    >
-                                        <td colSpan={5} className="py-20 text-center">
-                                            <div className="flex flex-col items-center justify-center text-slate-400">
-                                                <div className="bg-slate-50 p-6 rounded-full mb-4">
-                                                    <Search size={48} strokeWidth={1.5} />
-                                                </div>
-                                                <h3 className="text-xl font-bold text-slate-700 mb-2">
-                                                    {searchTerm ? 'Tiada Rekod Dijumpai' : 'Tiada Rekod Lagi'}
-                                                </h3>
-                                                <p className="max-w-xs mx-auto">
-                                                    {searchTerm 
-                                                        ? `Carian "${searchTerm}" tidak memulangkan sebarang keputusan.` 
-                                                        : 'Anda belum mencipta sebarang rekod eRPH. Mulakan dengan menekan butang "Rekod Baru".'}
-                                                </p>
-                                            </div>
+                                    <tr>
+                                        <td colSpan={6} className="py-10 text-center">
+                                            <h3 style={{ color: 'var(--text-main)' }}>
+                                                {searchTerm ? 'Tiada rekod sepadan' : 'Belum ada rekod'}
+                                            </h3>
+                                            <p style={{ color: 'var(--text-muted)' }}>
+                                                {searchTerm
+                                                    ? `Carian “${searchTerm}” tiada keputusan.`
+                                                    : 'Mulakan dengan tab Rekod Baru.'}
+                                            </p>
                                         </td>
-                                    </motion.tr>
+                                    </tr>
                                 )}
                             </AnimatePresence>
                         </tbody>
                     </table>
                 </div>
 
-                {/* Pagination Controls */}
-                {!loading && totalPages > 1 && (
-                    <div style={{ 
-                        display: 'flex', 
-                        justifyContent: 'center', 
-                        alignItems: 'center', 
-                        gap: '1rem', 
-                        marginTop: '2rem',
-                        paddingTop: '1rem',
-                        borderTop: '1px solid var(--border)'
-                    }}>
-                        <button 
-                            className="btn btn-outline" 
-                            style={{ padding: '0.5rem' }}
-                            onClick={() => setPage(Math.max(1, page - 1))}
-                            disabled={page === 1}
-                        >
-                            <ChevronLeft size={20} />
-                        </button>
-                        
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            {Array.from({ length: totalPages }, (_, i) => (
-                                <button
-                                    key={i}
-                                    className={`btn ${page === i + 1 ? 'btn-primary' : 'btn-outline'}`}
-                                    style={{ padding: '0.5rem 1rem', minWidth: '40px' }}
-                                    onClick={() => setPage(i + 1)}
-                                >
-                                    {i + 1}
-                                </button>
-                            ))}
-                        </div>
-
-                        <button 
-                            className="btn btn-outline" 
-                            style={{ padding: '0.5rem' }}
-                            onClick={() => setPage(Math.min(totalPages, page + 1))}
-                            disabled={page === totalPages}
-                        >
-                            <ChevronRight size={20} />
-                        </button>
-                    </div>
-                )}
-            </motion.div >
-
-            {/* Loading Overlay */}
-            <AnimatePresence>
-                {isGeneratingPDF && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        style={{
-                            position: 'fixed',
-                            inset: 0,
-                            zIndex: 10000,
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            backdropFilter: 'blur(5px)'
-                        }}
+                {!loading && totalPages > 0 && (
+                    <nav
+                        aria-label="Paginasi rekod"
+                        className="flex justify-center items-center gap-3 mt-6 pt-3"
+                        style={{ borderTop: '1px solid var(--border-subtle)' }}
                     >
-                        <Loader2 size={48} className="animate-spin" style={{ color: 'var(--primary)', marginBottom: '1.5rem' }} />
-                        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '0.5rem' }}>Menjana PDF...</h3>
-                        <p style={{ color: 'var(--text-muted)' }}>Sila tunggu sebentar.</p>
-                    </motion.div>
+                        <button
+                            type="button"
+                            className="btn btn-outline btn-icon"
+                            onClick={() => setPage(Math.max(1, page - 1))}
+                            disabled={page <= 1}
+                            aria-label="Halaman sebelumnya"
+                        >
+                            <ChevronLeft size={20} aria-hidden="true" />
+                        </button>
+                        <span style={{ fontWeight: 600 }}>Halaman {page} / {totalPages}</span>
+                        {pageWindow(page, totalPages).map((number, index, list) => (
+                            <React.Fragment key={number}>
+                                {index > 0 && number - list[index - 1] > 1 && <span aria-hidden="true">…</span>}
+                                <button
+                                    type="button"
+                                    className={`btn ${page === number ? 'btn-primary' : 'btn-outline'} btn-sm`}
+                                    aria-current={page === number ? 'page' : undefined}
+                                    aria-label={`Halaman ${number}`}
+                                    onClick={() => setPage(number)}
+                                >
+                                    {number}
+                                </button>
+                            </React.Fragment>
+                        ))}
+                        <button
+                            type="button"
+                            className="btn btn-outline btn-icon"
+                            onClick={() => setPage(Math.min(totalPages, page + 1))}
+                            disabled={page >= totalPages}
+                            aria-label="Halaman seterusnya"
+                        >
+                            <ChevronRight size={20} aria-hidden="true" />
+                        </button>
+                    </nav>
                 )}
-            </AnimatePresence>
-        </React.Fragment >
+            </motion.div>
+
+            {isGeneratingPDF && (
+                <div className="page-center" role="status" aria-live="polite" style={{ position: 'fixed', inset: 0, background: 'rgb(255 255 255 / 0.92)', zIndex: 10000 }}>
+                    <Loader2 size={48} className="animate-spin" aria-hidden="true" style={{ color: 'var(--primary)' }} />
+                    <h3 style={{ color: 'var(--primary)' }}>Menjana PDF…</h3>
+                    <p style={{ color: 'var(--text-muted)' }}>Sila tunggu sebentar.</p>
+                </div>
+            )}
+        </React.Fragment>
     );
 };

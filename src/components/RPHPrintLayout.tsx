@@ -49,7 +49,7 @@ export const RPHPrintLayout: React.FC<RPHPrintLayoutProps> = ({ record, minHeigh
 
                 <div style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
                     <strong>Tajuk / Standard Kandungan (SK):</strong>
-                    <div style={{ marginTop: '0.15rem', whiteSpace: 'pre-wrap' }}>{record.content?.tajukStandardKandungan || 'N/A'}</div>
+                    <div style={{ marginTop: '0.15rem', whiteSpace: 'pre-wrap' }}>{record.content?.tajukStandardKandungan || '—'}</div>
                 </div>
 
                 {record.content?.sp && record.content.sp.length > 0 && (
@@ -78,12 +78,12 @@ export const RPHPrintLayout: React.FC<RPHPrintLayoutProps> = ({ record, minHeigh
 
                 <div style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
                     <strong>Objektif:</strong>
-                    <div style={{ marginTop: '0.15rem', whiteSpace: 'pre-wrap' }}>{record.content?.objektif || 'N/A'}</div>
+                    <div style={{ marginTop: '0.15rem', whiteSpace: 'pre-wrap' }}>{record.content?.objektif || '—'}</div>
                 </div>
 
                 <div style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
                     <strong>Aktiviti:</strong>
-                    <div style={{ marginTop: '0.15rem', whiteSpace: 'pre-wrap', minHeight: '80px' }}>{record.content?.aktiviti || 'N/A'}</div>
+                    <div style={{ marginTop: '0.15rem', whiteSpace: 'pre-wrap', minHeight: '80px' }}>{record.content?.aktiviti || '—'}</div>
                 </div>
 
                 <div style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>

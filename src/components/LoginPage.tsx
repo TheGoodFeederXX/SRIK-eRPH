@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, UserPlus, Mail, Lock, User, AlertCircle, Loader2 } from 'lucide-react';
+import { LogIn, UserPlus, Mail, Lock, User, AlertCircle, CheckCircle2, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { errorMessage } from '../lib/apiClient';
+import { api, errorMessage } from '../lib/apiClient';
 
 export const LoginPage: React.FC = () => {
     const { login, register } = useAuth();
@@ -10,6 +10,8 @@ export const LoginPage: React.FC = () => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [resetSent, setResetSent] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
@@ -49,9 +51,9 @@ export const LoginPage: React.FC = () => {
                     <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-sm inline-flex items-center justify-center mb-6 border border-white">
                         <img src="/logo.png" alt="Logo eRPH" className="w-16 h-16 object-contain" />
                     </div>
-                    <h2 id="login-title" className="text-3xl font-black text-slate-800 mb-2 tracking-tight">
+                    <h1 id="login-title" className="text-3xl font-black text-slate-800 mb-2 tracking-tight">
                         {isLogin ? 'Selamat Kembali' : 'Daftar Akaun'}
-                    </h2>
+                    </h1>
                     <p className="text-slate-600 font-medium">
                         {isLogin ? 'Log masuk ke sistem eRPH digital anda' : 'Sila isi maklumat untuk mendaftar'}
                     </p>
@@ -66,6 +68,7 @@ export const LoginPage: React.FC = () => {
                                 <input
                                     id="name"
                                     type="text"
+                                    autoComplete="name"
                                     required
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
@@ -101,17 +104,54 @@ export const LoginPage: React.FC = () => {
                             <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" aria-hidden="true" />
                             <input
                                 id="password"
-                                type="password"
+                                type={showPassword ? 'text' : 'password'}
                                 autoComplete={isLogin ? 'current-password' : 'new-password'}
                                 required
                                 minLength={8}
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 placeholder="••••••••"
-                                className="pl-12 w-full py-3 bg-white border-slate-300 focus:border-emerald-600 transition-all rounded-xl min-h-[44px]"
+                                className="pl-12 w-full py-3 bg-white border-slate-300 transition-all rounded-xl min-h-[44px]"
                                 aria-required="true"
+                                aria-describedby={!isLogin ? 'password-hint' : undefined}
+                                style={{ paddingRight: '3rem' }}
                             />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword((value) => !value)}
+                                className="btn btn-outline btn-icon"
+                                style={{ position: 'absolute', right: '0.25rem', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none' }}
+                                aria-label={showPassword ? 'Sembunyikan kata laluan' : 'Papar kata laluan'}
+                                aria-pressed={showPassword}
+                            >
+                                {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                            </button>
                         </div>
+                        {!isLogin && (
+                            <p className="field-hint" id="password-hint">Sekurang-kurangnya 8 aksara.</p>
+                        )}
+                        {isLogin && (
+                            <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                style={{ alignSelf: 'flex-start', border: 'none', padding: 0, minHeight: 'auto', color: 'var(--primary)' }}
+                                onClick={async () => {
+                                    if (!email) {
+                                        setError('Masukkan e-mel anda dahulu.');
+                                        return;
+                                    }
+                                    try {
+                                        await api.forgotPassword(email);
+                                        setResetSent(true);
+                                        setError(null);
+                                    } catch (err) {
+                                        setError(errorMessage(err));
+                                    }
+                                }}
+                            >
+                                Lupa kata laluan?
+                            </button>
+                        )}
                     </div>
 
                     <AnimatePresence>
@@ -121,10 +161,21 @@ export const LoginPage: React.FC = () => {
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
                                 role="alert"
-                                className="bg-red-50/80 backdrop-blur-sm text-red-700 p-4 rounded-xl text-sm flex items-center gap-3 border border-red-100"
+                                className="alert alert-error"
                             >
-                                <AlertCircle size={18} />
-                                <span className="font-medium">{error}</span>
+                                <AlertCircle size={18} aria-hidden="true" />
+                                <span>{error}</span>
+                            </motion.div>
+                        )}
+                        {resetSent && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                role="status"
+                                className="alert alert-info"
+                            >
+                                <span>Pautan set semula kata laluan telah dihantar ke e-mel anda (jika akaun wujud).</span>
                             </motion.div>
                         )}
                         {message && (
@@ -133,10 +184,10 @@ export const LoginPage: React.FC = () => {
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
                                 role="status"
-                                className="bg-emerald-50/80 backdrop-blur-sm text-emerald-700 p-4 rounded-xl text-sm flex items-center gap-3 border border-emerald-100"
+                                className="alert alert-success"
                             >
-                                <AlertCircle size={18} />
-                                <span className="font-medium">{message}</span>
+                                <CheckCircle2 size={18} aria-hidden="true" />
+                                <span>{message}</span>
                             </motion.div>
                         )}
                     </AnimatePresence>

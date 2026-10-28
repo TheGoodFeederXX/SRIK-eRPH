@@ -2,22 +2,18 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api, errorMessage } from '../lib/apiClient';
 import { type ReferensiRPH } from '../types';
 import {
-    Plus, Search, Edit2, Trash2, X, Save, AlertCircle,
-    ChevronLeft, ChevronRight, Loader2, CheckCircle2,
+    Plus, Search, Edit2, Trash2, X, Save,
+    ChevronLeft, ChevronRight, Loader2,
     Inbox
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-
-interface Toast {
-    id: string;
-    message: string;
-    type: 'success' | 'error';
-}
+import { Modal, ConfirmDialog } from './Modal';
+import { useToast } from '../hooks/useToast';
 
 export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     const [records, setRecords] = useState<ReferensiRPH[]>([]);
     const [loading, setLoading] = useState(true);
-    const [toasts, setToasts] = useState<Toast[]>([]);
+    const { notify } = useToast();
 
     // Filter + server-side pagination state
     const [search, setSearch] = useState('');
@@ -64,14 +60,6 @@ export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         return Array.from(new Set(years)).sort((a, b) => Number(a) - Number(b));
     }, [records]);
 
-    const addToast = (message: string, type: 'success' | 'error') => {
-        const id = Math.random().toString(36).substr(2, 9);
-        setToasts(prev => [...prev, { id, message, type }]);
-        setTimeout(() => {
-            setToasts(prev => prev.filter(t => t.id !== id));
-        }, 3000);
-    };
-
     const fetchRecords = async () => {
         try {
             setLoading(true);
@@ -84,7 +72,7 @@ export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
             setRecords(result.data);
             setTotalCount(result.totalCount);
         } catch (error) {
-            addToast(errorMessage(error), 'error');
+            notify(errorMessage(error), 'error');
         } finally {
             setLoading(false);
         }
@@ -125,9 +113,9 @@ export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
             await reload();
             setIsAddModalOpen(false);
             resetForm();
-            addToast('Rekod DSKP berjaya ditambah!', 'success');
+            notify('Rekod DSKP berjaya ditambah!', 'success');
         } catch (error) {
-            addToast(errorMessage(error), 'error');
+            notify(errorMessage(error), 'error');
         }
     };
 
@@ -146,9 +134,9 @@ export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
             setIsEditModalOpen(false);
             setCurrentRecord(null);
             resetForm();
-            addToast('Rekod DSKP berjaya dikemaskini!', 'success');
+            notify('Rekod DSKP berjaya dikemaskini!', 'success');
         } catch (error) {
-            addToast(errorMessage(error), 'error');
+            notify(errorMessage(error), 'error');
         }
     };
 
@@ -159,9 +147,9 @@ export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
             await api.deleteDskp(recordToDelete.id);
             await reload();
             setRecordToDelete(null);
-            addToast('Rekod DSKP berjaya dipadam!', 'success');
+            notify('Rekod DSKP berjaya dipadam!', 'success');
         } catch (error) {
-            addToast(errorMessage(error), 'error');
+            notify(errorMessage(error), 'error');
         }
     };
 
@@ -256,17 +244,7 @@ export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
                 }}>
                     <div>
-                        <label style={{
-                            display: 'block',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            color: '#64748b',
-                            marginBottom: '0.625rem',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em'
-                        }}>
-                            Subjek
-                        </label>
+                        <label htmlFor="dskp-search" className="field-label">Cari</label>
                         <div style={{ position: 'relative' }}>
                             <Search style={{
                                 position: 'absolute',
@@ -305,18 +283,9 @@ export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                         </div>
                     </div>
                     <div>
-                        <label style={{
-                            display: 'block',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            color: '#64748b',
-                            marginBottom: '0.625rem',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em'
-                        }}>
-                            Tahun
-                        </label>
+                        <label htmlFor="dskp-filter-tahun" className="field-label">Tahun</label>
                         <select
+                            id="dskp-filter-tahun"
                             style={{
                                 width: '100%',
                                 padding: '0.75rem 1rem',
@@ -643,7 +612,8 @@ export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                                     e.currentTarget.style.borderColor = '#e2e8f0';
                                 }}
                             >
-                                <ChevronLeft size={20} />
+                                <ChevronLeft size={20} aria-hidden="true" />
+                                <span className="sr-only">Halaman sebelumnya</span>
                             </button>
                             <span style={{
                                 fontWeight: 600,
@@ -680,339 +650,252 @@ export const DSKPManager: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                                     e.currentTarget.style.borderColor = '#e2e8f0';
                                 }}
                             >
-                                <ChevronRight size={20} />
+                                <ChevronRight size={20} aria-hidden="true" />
+                                <span className="sr-only">Halaman seterusnya</span>
                             </button>
                         </div>
                     </div>
                 )}
             </div>
 
-            {/* Modal for Add/Edit */}
-            <AnimatePresence>
-                {(isAddModalOpen || isEditModalOpen) && (
-                    <div style={{
-                        position: 'fixed',
-                        inset: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 1000,
-                        backgroundColor: 'rgba(15, 23, 42, 0.4)',
-                        backdropFilter: 'blur(4px)'
-                    }}>
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 20 }}
-                            className="glass-card"
-                            style={{ width: '100%', maxWidth: '600px', margin: '1rem', overflow: 'hidden' }}
-                        >
-                            <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <h3 style={{ margin: 0, color: 'var(--primary)' }}>
-                                    {isAddModalOpen ? 'Tambah DSKP Baru' : 'Kemaskini DSKP'}
-                                </h3>
-                                <button
-                                    onClick={() => {
-                                        setIsAddModalOpen(false);
-                                        setIsEditModalOpen(false);
+            <Modal
+                open={isAddModalOpen || isEditModalOpen}
+                onClose={() => {
+                    setIsAddModalOpen(false);
+                    setIsEditModalOpen(false);
+                }}
+                title={isAddModalOpen ? 'Tambah DSKP Baru' : 'Kemaskini DSKP'}
+                wide
+            >
+                <form onSubmit={isAddModalOpen ? handleAdd : handleEdit}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ marginBottom: '1rem' }}>
+                        <div className="input-group" style={{ marginBottom: 0 }}>
+                            <label htmlFor="dskp-subjek">Subjek</label>
+                            {!isAddingNewSubjek ? (
+                                <select
+                                    id="dskp-subjek"
+                                    required
+                                    value={formData.subjek}
+                                    onChange={(e) => {
+                                        if (e.target.value === 'ADD_NEW') {
+                                            setIsAddingNewSubjek(true);
+                                            setFormData({ ...formData, subjek: '' });
+                                        } else {
+                                            setFormData({ ...formData, subjek: e.target.value });
+                                        }
                                     }}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
                                 >
-                                    <X size={20} />
-                                </button>
-                            </div>
-
-                            <form onSubmit={isAddModalOpen ? handleAdd : handleEdit} style={{ padding: '2rem' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-                                    <div className="input-group" style={{ marginBottom: 0 }}>
-                                        <label>Subjek</label>
-                                        {!isAddingNewSubjek ? (
-                                            <select
-                                                required
-                                                value={formData.subjek}
-                                                onChange={(e) => {
-                                                    if (e.target.value === 'ADD_NEW') {
-                                                        setIsAddingNewSubjek(true);
-                                                        setFormData({ ...formData, subjek: '' });
-                                                    } else {
-                                                        setFormData({ ...formData, subjek: e.target.value });
-                                                    }
-                                                }}
-                                            >
-                                                <option value="" disabled>Pilih Subjek</option>
-                                                {uniqueSubjects.map(s => (
-                                                    <option key={s} value={s}>{s}</option>
-                                                ))}
-                                                <option value="ADD_NEW" style={{ fontWeight: 'bold', color: 'var(--primary)' }}>+ Tambah Subjek Baru</option>
-                                            </select>
-                                        ) : (
-                                            <div style={{ position: 'relative' }}>
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    autoFocus
-                                                    value={formData.subjek}
-                                                    onChange={e => setFormData({ ...formData, subjek: e.target.value })}
-                                                    placeholder="Nama Subjek Baru"
-                                                    style={{ paddingRight: '2rem' }}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setIsAddingNewSubjek(false)}
-                                                    style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}
-                                                    title="Kembali ke senarai"
-                                                >
-                                                    <X size={14} />
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="input-group" style={{ marginBottom: 0 }}>
-                                        <label>Tahun / Kelas</label>
-                                        {!isAddingNewTahun ? (
-                                            <select
-                                                required
-                                                value={formData.tahun}
-                                                onChange={(e) => {
-                                                    if (e.target.value === 'ADD_NEW') {
-                                                        setIsAddingNewTahun(true);
-                                                        setFormData({ ...formData, tahun: '' });
-                                                    } else {
-                                                        setFormData({ ...formData, tahun: e.target.value });
-                                                    }
-                                                }}
-                                            >
-                                                <option value="" disabled>Pilih Tahun</option>
-                                                {uniqueYears.map(t => (
-                                                    <option key={String(t)} value={String(t)}>Tahun {t}</option>
-                                                ))}
-                                                <option value="ADD_NEW" style={{ fontWeight: 'bold', color: 'var(--primary)' }}>+ Tambah Tahun Baru</option>
-                                            </select>
-                                        ) : (
-                                            <div style={{ position: 'relative' }}>
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    max="6"
-                                                    required
-                                                    autoFocus
-                                                    value={formData.tahun}
-                                                    onChange={e => setFormData({ ...formData, tahun: e.target.value })}
-                                                    placeholder="1 - 6"
-                                                    style={{ paddingRight: '2rem' }}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setIsAddingNewTahun(false)}
-                                                    style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}
-                                                    title="Kembali ke senarai"
-                                                >
-                                                    <X size={14} />
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="input-group">
-                                    <label>Bidang (pilihan)</label>
+                                    <option value="" disabled>Pilih Subjek</option>
+                                    {uniqueSubjects.map(name => (
+                                        <option key={name} value={name}>{name}</option>
+                                    ))}
+                                    <option value="ADD_NEW">+ Tambah Subjek Baru</option>
+                                </select>
+                            ) : (
+                                <div style={{ position: 'relative' }}>
                                     <input
                                         type="text"
-                                        value={formData.bidang}
-                                        onChange={e => setFormData({ ...formData, bidang: e.target.value })}
-                                        placeholder="Contoh: Al-Quran"
-                                    />
-                                </div>
-
-                                <div className="input-group">
-                                    <label>Standard Kandungan (SK)</label>
-                                    <textarea
                                         required
-                                        rows={6}
-                                        value={formData.sk}
-                                        onChange={e => setFormData({ ...formData, sk: e.target.value })}
-                                        placeholder="Masukkan butiran SK..."
-                                        style={{ resize: 'vertical' }}
+                                        autoFocus
+                                        value={formData.subjek}
+                                        onChange={e => setFormData({ ...formData, subjek: e.target.value })}
+                                        placeholder="Nama Subjek Baru"
+                                        aria-label="Nama subjek baharu"
+                                        style={{ paddingRight: '2.5rem' }}
                                     />
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsAddingNewSubjek(false)}
+                                        className="btn btn-outline btn-icon"
+                                        style={{ position: 'absolute', right: '0.25rem', top: '50%', transform: 'translateY(-50%)', border: 'none' }}
+                                        aria-label="Kembali ke senarai subjek"
+                                    >
+                                        <X size={14} aria-hidden="true" />
+                                    </button>
                                 </div>
-
-                                <div className="input-group">
-                                    <label>Standard Pembelajaran (SP) — sekurang-kurangnya satu</label>
-                                    {formData.sp.map((item, index) => (
-                                        <div key={index} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                                            <input
-                                                type="text"
-                                                required
-                                                value={item}
-                                                placeholder={`SP ${index + 1}`}
-                                                onChange={(e) => {
-                                                    const next = [...formData.sp];
-                                                    next[index] = e.target.value;
-                                                    setFormData({ ...formData, sp: next });
-                                                }}
-                                            />
-                                            <button
-                                                type="button"
-                                                className="btn btn-outline"
-                                                style={{ padding: '0.5rem', color: '#ef4444' }}
-                                                title="Buang SP"
-                                                onClick={() => setFormData({ ...formData, sp: formData.sp.filter((_, i) => i !== index) })}
-                                            >
-                                                <X size={16} />
-                                            </button>
-                                        </div>
+                            )}
+                        </div>
+                        <div className="input-group" style={{ marginBottom: 0 }}>
+                            <label htmlFor="dskp-tahun">Tahun</label>
+                            {!isAddingNewTahun ? (
+                                <select
+                                    id="dskp-tahun"
+                                    required
+                                    value={formData.tahun}
+                                    onChange={(e) => {
+                                        if (e.target.value === 'ADD_NEW') {
+                                            setIsAddingNewTahun(true);
+                                            setFormData({ ...formData, tahun: '' });
+                                        } else {
+                                            setFormData({ ...formData, tahun: e.target.value });
+                                        }
+                                    }}
+                                >
+                                    <option value="" disabled>Pilih Tahun</option>
+                                    {uniqueYears.map(t => (
+                                        <option key={String(t)} value={String(t)}>Tahun {t}</option>
                                     ))}
+                                    <option value="ADD_NEW">+ Tambah Tahun Baru</option>
+                                </select>
+                            ) : (
+                                <div style={{ position: 'relative' }}>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="6"
+                                        required
+                                        autoFocus
+                                        value={formData.tahun}
+                                        onChange={e => setFormData({ ...formData, tahun: e.target.value })}
+                                        placeholder="1 – 6"
+                                        aria-label="Tahun"
+                                        style={{ paddingRight: '2.5rem' }}
+                                    />
                                     <button
                                         type="button"
-                                        className="btn btn-outline"
-                                        onClick={() => setFormData({ ...formData, sp: [...formData.sp, ''] })}
+                                        onClick={() => setIsAddingNewTahun(false)}
+                                        className="btn btn-outline btn-icon"
+                                        style={{ position: 'absolute', right: '0.25rem', top: '50%', transform: 'translateY(-50%)', border: 'none' }}
+                                        aria-label="Kembali ke senarai tahun"
                                     >
-                                        <Plus size={16} /> Tambah SP
+                                        <X size={14} aria-hidden="true" />
                                     </button>
                                 </div>
-
-                                <div className="input-group">
-                                    <label>Standard Prestasi (SPI) — pilihan</label>
-                                    {formData.spi.map((item, index) => (
-                                        <div key={index} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                style={{ maxWidth: '90px' }}
-                                                value={item.tp}
-                                                aria-label={`TP ${index + 1}`}
-                                                onChange={(e) => {
-                                                    const next = [...formData.spi];
-                                                    next[index] = { ...next[index], tp: Number(e.target.value) };
-                                                    setFormData({ ...formData, spi: next });
-                                                }}
-                                            />
-                                            <input
-                                                type="text"
-                                                value={item.desc}
-                                                placeholder="Huraian tahap penguasaan"
-                                                onChange={(e) => {
-                                                    const next = [...formData.spi];
-                                                    next[index] = { ...next[index], desc: e.target.value };
-                                                    setFormData({ ...formData, spi: next });
-                                                }}
-                                            />
-                                            <button
-                                                type="button"
-                                                className="btn btn-outline"
-                                                style={{ padding: '0.5rem', color: '#ef4444' }}
-                                                title="Buang SPI"
-                                                onClick={() => setFormData({ ...formData, spi: formData.spi.filter((_, i) => i !== index) })}
-                                            >
-                                                <X size={16} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                    <button
-                                        type="button"
-                                        className="btn btn-outline"
-                                        onClick={() => setFormData({ ...formData, spi: [...formData.spi, { tp: formData.spi.length + 1, desc: '' }] })}
-                                    >
-                                        <Plus size={16} /> Tambah SPI
-                                    </button>
-                                </div>
-
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-                                    <button
-                                        type="button"
-                                        className="btn btn-outline"
-                                        onClick={() => {
-                                            setIsAddModalOpen(false);
-                                            setIsEditModalOpen(false);
-                                        }}
-                                    >
-                                        Batal
-                                    </button>
-                                    <button type="submit" className="btn btn-primary">
-                                        <Save size={18} /> Simpan
-                                    </button>
-                                </div>
-                            </form>
-                        </motion.div>
+                            )}
+                        </div>
                     </div>
-                )}
-            </AnimatePresence>
 
-            {/* Confirm Delete */}
-            <AnimatePresence>
-                {recordToDelete && (
-                    <div style={{
-                        position: 'fixed',
-                        inset: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 1100,
-                        backgroundColor: 'rgba(15, 23, 42, 0.4)',
-                        backdropFilter: 'blur(4px)'
-                    }}>
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="glass-card"
-                            style={{ width: '100%', maxWidth: '400px', margin: '1rem', textAlign: 'center', padding: '2rem' }}
-                        >
-                            <AlertCircle size={48} style={{ color: '#ef4444', marginBottom: '1.5rem' }} />
-                            <h3 style={{ marginBottom: '0.5rem' }}>Padam Rekod?</h3>
-                            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '2rem' }}>
-                                Adakah anda pasti mahu memadam rekod untuk <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>"{recordToDelete.subjek}"</span>?
-                            </p>
+                    <div className="input-group">
+                        <label htmlFor="dskp-bidang">Bidang (pilihan)</label>
+                        <input
+                            id="dskp-bidang"
+                            type="text"
+                            value={formData.bidang}
+                            onChange={e => setFormData({ ...formData, bidang: e.target.value })}
+                            placeholder="Contoh: Al-Quran"
+                        />
+                    </div>
 
-                            <div style={{ display: 'flex', gap: '1rem' }}>
+                    <div className="input-group">
+                        <label htmlFor="dskp-sk">Standard Kandungan (SK)</label>
+                        <textarea
+                            id="dskp-sk"
+                            required
+                            rows={3}
+                            value={formData.sk}
+                            onChange={e => setFormData({ ...formData, sk: e.target.value })}
+                            placeholder="Masukkan butiran SK…"
+                            style={{ resize: 'vertical' }}
+                        />
+                    </div>
+
+                    <fieldset className="input-group">
+                        <legend className="field-label">Standard Pembelajaran (SP) — sekurang-kurangnya satu</legend>
+                        {formData.sp.map((item, index) => (
+                            <div key={index} className="flex gap-2 mb-2">
+                                <input
+                                    type="text"
+                                    required
+                                    value={item}
+                                    aria-label={`SP ${index + 1}`}
+                                    placeholder={`SP ${index + 1}`}
+                                    onChange={(e) => {
+                                        const next = [...formData.sp];
+                                        next[index] = e.target.value;
+                                        setFormData({ ...formData, sp: next });
+                                    }}
+                                />
                                 <button
-                                    className="btn btn-outline"
-                                    style={{ flex: 1 }}
-                                    onClick={() => setRecordToDelete(null)}
+                                    type="button"
+                                    className="btn btn-outline btn-icon"
+                                    aria-label={`Buang SP ${index + 1}`}
+                                    onClick={() => setFormData({ ...formData, sp: formData.sp.filter((_, i) => i !== index) })}
                                 >
-                                    Batal
-                                </button>
-                                <button
-                                    className="btn btn-primary"
-                                    style={{ flex: 1, backgroundColor: '#ef4444' }}
-                                    onClick={handleDelete}
-                                >
-                                    Padam
+                                    <X size={16} aria-hidden="true" />
                                 </button>
                             </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+                        ))}
+                        <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            onClick={() => setFormData({ ...formData, sp: [...formData.sp, ''] })}
+                        >
+                            <Plus size={16} aria-hidden="true" /> Tambah SP
+                        </button>
+                    </fieldset>
 
-            {/* Toasts */}
-            <div style={{ position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 2000, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <AnimatePresence>
-                    {toasts.map((toast) => (
-                        <motion.div
-                            key={toast.id}
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            style={{
-                                padding: '1rem 1.5rem',
-                                borderRadius: '0.75rem',
-                                backgroundColor: toast.type === 'success' ? '#065f46' : '#991b1b',
-                                color: 'white',
-                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.75rem',
-                                fontWeight: 600,
-                                fontSize: '0.9rem'
+                    <fieldset className="input-group">
+                        <legend className="field-label">Standard Prestasi (SPI) — pilihan</legend>
+                        {formData.spi.map((item, index) => (
+                            <div key={index} className="flex gap-2 mb-2">
+                                <input
+                                    type="number"
+                                    min="0"
+                                    style={{ maxWidth: '90px' }}
+                                    value={item.tp}
+                                    aria-label={`TP untuk SPI ${index + 1}`}
+                                    onChange={(e) => {
+                                        const next = [...formData.spi];
+                                        next[index] = { ...next[index], tp: Number(e.target.value) };
+                                        setFormData({ ...formData, spi: next });
+                                    }}
+                                />
+                                <input
+                                    type="text"
+                                    value={item.desc}
+                                    aria-label={`Huraian SPI ${index + 1}`}
+                                    placeholder="Huraian tahap penguasaan"
+                                    onChange={(e) => {
+                                        const next = [...formData.spi];
+                                        next[index] = { ...next[index], desc: e.target.value };
+                                        setFormData({ ...formData, spi: next });
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    className="btn btn-outline btn-icon"
+                                    aria-label={`Buang SPI ${index + 1}`}
+                                    onClick={() => setFormData({ ...formData, spi: formData.spi.filter((_, i) => i !== index) })}
+                                >
+                                    <X size={16} aria-hidden="true" />
+                                </button>
+                            </div>
+                        ))}
+                        <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            onClick={() => setFormData({ ...formData, spi: [...formData.spi, { tp: formData.spi.length + 1, desc: '' }] })}
+                        >
+                            <Plus size={16} aria-hidden="true" /> Tambah SPI
+                        </button>
+                    </fieldset>
+
+                    <div className="modal-actions">
+                        <button
+                            type="button"
+                            className="btn btn-outline"
+                            onClick={() => {
+                                setIsAddModalOpen(false);
+                                setIsEditModalOpen(false);
                             }}
                         >
-                            {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-                            {toast.message}
-                        </motion.div>
-                    ))}
-                </AnimatePresence>
-            </div>
+                            Batal
+                        </button>
+                        <button type="submit" className="btn btn-primary">
+                            <Save size={18} aria-hidden="true" /> Simpan
+                        </button>
+                    </div>
+                </form>
+            </Modal>
+
+            <ConfirmDialog
+                open={recordToDelete !== null}
+                title="Padam rekod DSKP?"
+                message={recordToDelete ? `Rekod "${recordToDelete.subjek}" — ${recordToDelete.sk} akan dipadam secara kekal.` : ''}
+                onCancel={() => setRecordToDelete(null)}
+                onConfirm={() => void handleDelete()}
+            />
+
         </motion.div>
     );
 };

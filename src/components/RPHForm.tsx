@@ -1,14 +1,14 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Save, ChevronDown, X, Printer, ArrowLeft, AlertCircle, Download, Loader2 } from 'lucide-react';
+import { Save, X, Printer, ArrowLeft, AlertCircle, Download, Loader2 } from 'lucide-react';
 import type { RPHRecord } from '../types';
 import { api, errorMessage } from '../lib/apiClient';
 import { todayMalaysia, getMalayDay } from '../lib/dateUtils';
 import type { ReferensiRPH } from '../types';
 import { RPHPrintLayout } from './RPHPrintLayout';
-import { generateRPH_PDF } from '../lib/pdfGenerator';
 import { PDFReadyModal } from './PDFReadyModal';
 import { WizardStepper } from './WizardStepper';
+import { useToast } from '../hooks/useToast';
 
 interface RPHFormProps {
     onSubmit: (record: Omit<RPHRecord, 'id'>) => Promise<void>;
@@ -80,8 +80,9 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
     
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [isMasaDropdownOpen, setIsMasaDropdownOpen] = useState(false);
-    const masaDropdownRef = useRef<HTMLDivElement>(null);
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+    const [draftRestored, setDraftRestored] = useState(false);
+    const { notify } = useToast();
     const [showPrintModal, setShowPrintModal] = useState(false);
     const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
     const [pdfModalData, setPdfModalData] = useState<{ isOpen: boolean; url: string | null; fileName: string }>({
@@ -112,6 +113,7 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                     setFormData(prev => ({ ...prev, ...parsed.formData }));
                     setSelectedYear(parsed.selectedYear);
                     setCurrentStep(parsed.currentStep || 1);
+                    setDraftRestored(true);
                 } catch (e) {
                     console.error('Failed to parse draft', e);
                 }
@@ -127,6 +129,16 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
         }
     }, [formData, selectedYear, currentStep, initialData]);
 
+    // Escape closes the print preview dialog (audit T-02).
+    useEffect(() => {
+        if (!showPrintModal) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setShowPrintModal(false);
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+    }, [showPrintModal]);
+
     // Focus management on step change
     useEffect(() => {
         if (firstFieldRef.current) {
@@ -134,30 +146,41 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
         }
     }, [currentStep]);
 
-    // Validation for each step
-    const validateStep = (step: number) => {
-        switch (step) {
-            case 1:
-                if (!formData.tarikh || !formData.hari || !selectedYear || !formData.kelas || !formData.masa || !formData.subjek) {
-                    setError('Sila lengkapkan semua maklumat asas.');
-                    return false;
-                }
-                return true;
-            case 2:
-                if (!formData.tajukStandardKandungan || formData.sp.length === 0) {
-                    setError('Sila pilih Standard Kandungan dan sekurang-kurangnya satu Standard Pembelajaran.');
-                    return false;
-                }
-                return true;
-            case 3:
-                if (!formData.objektif || !formData.aktiviti) {
-                    setError('Sila lengkapkan objektif dan aktiviti pembelajaran.');
-                    return false;
-                }
-                return true;
-            default:
-                return true;
+    // Per-field validation with messages, aria-invalid and focus on the first error
+    // (audit T-09).
+    const collectErrors = (step: number): Record<string, string> => {
+        const found: Record<string, string> = {};
+        if (step === 1) {
+            if (!formData.tarikh) found.tarikh = 'Pilih tarikh.';
+            if (!formData.hari) found.hari = 'Pilih hari.';
+            if (selectedYear === '') found.tahun = 'Pilih tahun.';
+            if (!formData.kelas) found.kelas = 'Pilih kelas.';
+            if (!formData.masa) found.masa = 'Pilih sekurang-kurangnya satu waktu.';
+            if (!formData.subjek) found.subjek = 'Pilih subjek.';
         }
+        if (step === 2) {
+            if (availableBidang.length > 0 && !formData.bidang) found.bidang = 'Pilih bidang.';
+            if (!formData.tajukStandardKandungan) found.tajukStandardKandungan = 'Pilih Standard Kandungan.';
+            if (formData.sp.length === 0) found.sp = 'Pilih sekurang-kurangnya satu Standard Pembelajaran.';
+        }
+        if (step === 3) {
+            if (!formData.objektif.trim()) found.objektif = 'Isi objektif pembelajaran.';
+            if (!formData.aktiviti.trim()) found.aktiviti = 'Isi aktiviti pembelajaran.';
+        }
+        return found;
+    };
+
+    const validateStep = (step: number) => {
+        const found = collectErrors(step);
+        setFieldErrors(found);
+        const firstKey = Object.keys(found)[0];
+        if (firstKey) {
+            setError('Sila lengkapkan medan yang ditanda.');
+            document.getElementById(firstKey)?.focus();
+            return false;
+        }
+        setError(null);
+        return true;
     };
 
     const nextStep = () => {
@@ -175,6 +198,7 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
     };
 
     const [dskpRows, setDskpRows] = useState<ReferensiRPH[]>([]);
+    const [isLoadingDskp, setIsLoadingDskp] = useState(false);
 
     // One bounded query per subject/year replaces three chained lookups (audit F-08).
     useEffect(() => {
@@ -184,12 +208,16 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
         }
 
         let active = true;
+        setIsLoadingDskp(true);
         api.listDskp({ page: 1, subjek: formData.subjek, tahun: Number(selectedYear), pageSize: 500 })
             .then((result) => {
                 if (active) setDskpRows(result.data);
             })
             .catch((err) => {
                 if (active) setError(errorMessage(err));
+            })
+            .finally(() => {
+                if (active) setIsLoadingDskp(false);
             });
 
         return () => {
@@ -218,6 +246,18 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
 
     const availableSP = selectedStandard?.sp ?? [];
     const availableSPI = selectedStandard?.spi ?? [];
+
+    const invalid = (name: string) => ({
+        'aria-invalid': fieldErrors[name] ? true : undefined,
+        'aria-describedby': fieldErrors[name] ? `${name}-error` : undefined,
+    });
+
+    const FieldError: React.FC<{ name: string }> = ({ name }) =>
+        fieldErrors[name] ? (
+            <p className="field-error" id={`${name}-error`}>
+                <AlertCircle size={14} aria-hidden="true" /> {fieldErrors[name]}
+            </p>
+        ) : null;
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
@@ -360,6 +400,7 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                     spi: formData.spi
                 }
             };
+            const { generateRPH_PDF } = await import('../lib/pdfGenerator');
             const blob = await generateRPH_PDF(recordToGenerate);
             const url = URL.createObjectURL(blob);
             const fileName = `eRPH_${formData.tarikh}_${formData.kelas.replace(/ /g, '_')}.pdf`;
@@ -369,7 +410,7 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
         } catch (error) {
             console.error('PDF Generation Error:', error);
             setIsGeneratingPDF(false);
-            alert('Gagal menjana PDF. Sila cuba lagi.');
+            notify('Gagal menjana PDF. Sila cuba lagi.', 'error');
         }
     };
 
@@ -409,6 +450,40 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                 }}
             />
 
+            {draftRestored && !initialData && (
+                <div className="alert alert-info" role="status">
+                    <span style={{ flex: 1 }}>Draf daripada sesi sebelumnya dipulihkan.</span>
+                    <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        onClick={() => {
+                            localStorage.removeItem(draftKey);
+                            const today = todayMalaysia();
+                            setFormData({
+                                tarikh: today,
+                                hari: getMalayDay(today),
+                                kelas: '',
+                                masa: '',
+                                subjek: '',
+                                bidang: '',
+                                tajukStandardKandungan: '',
+                                objektif: '',
+                                aktiviti: '',
+                                refleksi: '',
+                                sp: [],
+                                spi: [],
+                                status: 'draft',
+                            });
+                            setSelectedYear('');
+                            setCurrentStep(1);
+                            setDraftRestored(false);
+                        }}
+                    >
+                        Mula baru
+                    </button>
+                </div>
+            )}
+
             {error && (
                 <div 
                     id="form-error"
@@ -443,22 +518,25 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 <div className="input-group">
                                     <label htmlFor="tarikh">Tarikh</label>
-                                    <input 
-                                        type="date" 
-                                        id="tarikh" 
-                                        name="tarikh" 
-                                        value={formData.tarikh} 
-                                        onChange={handleChange} 
-                                        required 
+                                    <input
+                                        type="date"
+                                        id="tarikh"
+                                        name="tarikh"
+                                        value={formData.tarikh}
+                                        onChange={handleChange}
+                                        required
+                                        {...invalid('tarikh')}
                                         ref={firstFieldRef as React.Ref<HTMLInputElement>}
                                     />
+                                    <FieldError name="tarikh" />
                                 </div>
 
                                 <div className="input-group">
                                     <label htmlFor="hari">Hari</label>
-                                    <select id="hari" name="hari" value={formData.hari} onChange={handleChange} required>
+                                    <select id="hari" name="hari" value={formData.hari} onChange={handleChange} required {...invalid('hari')}>
                                         {HARI_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
                                     </select>
+                                    <FieldError name="hari" />
                                 </div>
 
                                 <div className="input-group">
@@ -471,97 +549,64 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                                             setFormData(prev => ({ ...prev, kelas: '', bidang: '', tajukStandardKandungan: '', sp: [], spi: [] }));
                                         }}
                                         required
+                                        {...invalid('tahun')}
                                     >
                                         <option value="">Pilih Tahun</option>
                                         {years.map(y => <option key={y} value={y}>Tahun {y}</option>)}
                                     </select>
+                                    <FieldError name="tahun" />
                                 </div>
 
                                 <div className="input-group">
                                     <label htmlFor="kelas">Kelas</label>
-                                    <select id="kelas" name="kelas" value={formData.kelas} onChange={handleChange} required disabled={!selectedYear}>
+                                    <select
+                                        id="kelas"
+                                        name="kelas"
+                                        value={formData.kelas}
+                                        onChange={handleChange}
+                                        required
+                                        disabled={!selectedYear}
+                                        {...invalid('kelas')}
+                                    >
                                         <option value="">Pilih Kelas</option>
                                         {selectedYear && KELAS_MAP[selectedYear as number]?.map(k => (
                                             <option key={k} value={k}>{k}</option>
                                         ))}
                                     </select>
+                                    {!selectedYear && <p className="field-hint">Pilih tahun dahulu.</p>}
+                                    <FieldError name="kelas" />
                                 </div>
 
-                                <div className="input-group" style={{ position: 'relative' }}>
-                                    <label id="label-masa">Masa</label>
-                                    <div ref={masaDropdownRef} style={{ position: 'relative', width: '100%' }}>
-                                        <button
-                                            type="button"
-                                            id="masa-trigger"
-                                            aria-haspopup="listbox"
-                                            aria-expanded={isMasaDropdownOpen}
-                                            aria-labelledby="label-masa"
-                                            onClick={() => setIsMasaDropdownOpen(!isMasaDropdownOpen)}
-                                            className="custom-select-trigger"
-                                            style={{
-                                                width: '100%',
-                                                padding: '0.75rem',
-                                                borderRadius: '0.5rem',
-                                                border: '1px solid #e2e8f0',
-                                                backgroundColor: 'white',
-                                                cursor: 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                minHeight: '48px'
-                                            }}
-                                        >
-                                            <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                                                {formData.masa ? (
-                                                    formData.masa.split(', ').map(m => (
-                                                        <span key={m} className="tag-primary">{m} <X size={12} onClick={(e) => { e.stopPropagation(); handleMasaToggle(m); }} /></span>
-                                                    ))
-                                                ) : (
-                                                    <span style={{ color: 'var(--text-muted)' }}>Pilih masa</span>
-                                                )}
-                                            </div>
-                                            <ChevronDown size={20} />
-                                        </button>
-
-                                        <AnimatePresence>
-                                            {isMasaDropdownOpen && (
-                                                <motion.div
-                                                    role="listbox"
-                                                    aria-labelledby="label-masa"
-                                                    initial={{ opacity: 0, y: -10 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    exit={{ opacity: 0, y: -10 }}
-                                                    className="dropdown-menu"
-                                                >
-                                                    {MASA_OPTIONS.map(masa => {
-                                                        const isChecked = formData.masa.includes(masa);
-                                                        return (
-                                                            <div 
-                                                                key={masa} 
-                                                                role="option"
-                                                                aria-selected={isChecked}
-                                                                onClick={() => handleMasaToggle(masa)} 
-                                                                className={`dropdown-item ${isChecked ? 'selected' : ''}`}
-                                                                style={{ minHeight: '44px' }}
-                                                            >
-                                                                <div className={`checkbox ${isChecked ? 'checked' : ''}`} />
-                                                                <span>{masa}</span>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </motion.div>
-                                            )}
-                                        </AnimatePresence>
-                                    </div>
+                                <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                                    <fieldset {...invalid('masa')}>
+                                        <legend>Masa (boleh pilih lebih daripada satu)</legend>
+                                        <div className="multi-select-container">
+                                            {MASA_OPTIONS.map((masa) => {
+                                                const isChecked = formData.masa.split(', ').filter(Boolean).includes(masa);
+                                                return (
+                                                    <label key={masa} className={`multi-select-item ${isChecked ? 'selected' : ''}`}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isChecked}
+                                                            onChange={() => handleMasaToggle(masa)}
+                                                        />
+                                                        <span>{masa}</span>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    </fieldset>
+                                    <FieldError name="masa" />
                                 </div>
                             </div>
 
                             <div className="input-group" style={{ marginTop: '1rem' }}>
                                 <label htmlFor="subjek">Subjek</label>
-                                <select id="subjek" name="subjek" value={formData.subjek} onChange={handleChange} required>
+                                <select id="subjek" name="subjek" value={formData.subjek} onChange={handleChange} required {...invalid('subjek')}>
                                     <option value="">Pilih Subjek</option>
-                                    {subjects.map(s => <option key={s} value={s}>{s}</option>)}
+                                    {subjects.map(subject => <option key={subject} value={subject}>{subject}</option>)}
                                 </select>
+                                <FieldError name="subjek" />
                             </div>
                         </motion.div>
                     )}
@@ -585,11 +630,13 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                                         onChange={handleChange} 
                                         disabled={!formData.subjek || selectedYear === '' || availableBidang.length === 0}
                                         required={availableBidang.length > 0}
+                                        {...invalid('bidang')}
                                         ref={firstFieldRef as React.Ref<HTMLSelectElement>}
                                     >
-                                        <option value="">{availableBidang.length === 0 ? 'Tiada Bidang' : 'Pilih Bidang'}</option>
+                                        <option value="">{isLoadingDskp ? 'Memuatkan…' : availableBidang.length === 0 ? 'Tiada Bidang' : 'Pilih Bidang'}</option>
                                         {availableBidang.map(b => <option key={b} value={b}>{b}</option>)}
                                     </select>
+                                    <FieldError name="bidang" />
                                 </div>
 
                                 <div className="input-group">
@@ -601,10 +648,15 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                                         onChange={handleChange}
                                         required
                                         disabled={availableBidang.length > 0 ? !formData.bidang : (!formData.subjek || selectedYear === '')}
+                                        {...invalid('tajukStandardKandungan')}
                                     >
-                                        <option value="">Pilih SK</option>
+                                        <option value="">{isLoadingDskp ? 'Memuatkan…' : 'Pilih SK'}</option>
                                         {availableSK.map(sk => <option key={sk} value={sk}>{sk}</option>)}
                                     </select>
+                                    <FieldError name="tajukStandardKandungan" />
+                                    {availableBidang.length > 0 && !formData.bidang && (
+                                        <p className="field-hint">Pilih bidang dahulu.</p>
+                                    )}
                                 </div>
                             </div>
 
@@ -632,28 +684,38 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                                         </div>
                                     )}
                                 </div>
-                                <div className="multi-select-container" role="listbox" aria-labelledby="label-sp" aria-multiselectable="true">
-                                    {availableSP.length > 0 ? (
-                                        availableSP.map(sp => {
-                                            const isSelected = formData.sp.includes(sp);
-                                            return (
-                                                <div 
-                                                    key={sp} 
-                                                    role="option"
-                                                    aria-selected={isSelected}
-                                                    className={`multi-select-item ${isSelected ? 'selected' : ''}`}
-                                                    onClick={() => handleMultiSelect('sp', sp)}
-                                                    style={{ minHeight: '44px' }}
-                                                >
-                                                    <div className={`checkbox ${isSelected ? 'checked' : ''}`} />
-                                                    <span style={{ fontSize: '0.9rem' }}>{sp}</span>
-                                                </div>
-                                            );
-                                        })
-                                    ) : (
-                                        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontStyle: 'italic' }}>Pilih SK terlebih dahulu.</p>
-                                    )}
-                                </div>
+                                <fieldset
+                                    aria-describedby={fieldErrors.sp ? 'sp-error' : undefined}
+                                    style={{ margin: 0 }}
+                                >
+                                    <legend className="field-label" style={{ position: 'absolute', left: '-9999px' }}>Standard Pembelajaran</legend>
+                                    <div className={`multi-select-container ${fieldErrors.sp ? 'has-error' : ''}`}>
+                                        {availableSP.length > 0 ? (
+                                            availableSP.map(sp => {
+                                                const isSelected = formData.sp.includes(sp);
+                                                return (
+                                                    <label key={sp} className={`multi-select-item ${isSelected ? 'selected' : ''}`}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isSelected}
+                                                            onChange={() => handleMultiSelect('sp', sp)}
+                                                        />
+                                                        <span style={{ fontSize: '0.9rem' }}>{sp}</span>
+                                                    </label>
+                                                );
+                                            })
+                                        ) : (
+                                            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontStyle: 'italic' }}>
+                                                {isLoadingDskp ? 'Memuatkan standard…' : 'Pilih SK terlebih dahulu.'}
+                                            </p>
+                                        )}
+                                    </div>
+                                </fieldset>
+                                {fieldErrors.sp && (
+                                    <p className="field-error" id="sp-error">
+                                        <AlertCircle size={14} aria-hidden="true" /> {fieldErrors.sp}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="input-group" style={{ marginTop: '1rem' }}>
@@ -680,28 +742,30 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                                         </div>
                                     )}
                                 </div>
-                                <div className="multi-select-container" role="listbox" aria-labelledby="label-spi" aria-multiselectable="true">
-                                    {availableSPI.length > 0 ? (
-                                        availableSPI.map((spi, idx) => {
-                                            const isSelected = formData.spi.some(item => item.tp === spi.tp && item.desc === spi.desc);
-                                            return (
-                                                <div 
-                                                    key={`${spi.tp}-${idx}`} 
-                                                    role="option"
-                                                    aria-selected={isSelected}
-                                                    className={`multi-select-item ${isSelected ? 'selected' : ''}`}
-                                                    onClick={() => handleMultiSelect('spi', spi)}
-                                                    style={{ minHeight: '44px' }}
-                                                >
-                                                    <div className={`checkbox ${isSelected ? 'checked' : ''}`} />
-                                                    <span style={{ fontSize: '0.9rem' }}><strong>TP{spi.tp}:</strong> {spi.desc}</span>
-                                                </div>
-                                            );
-                                        })
-                                    ) : (
-                                        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontStyle: 'italic' }}>Pilih SK terlebih dahulu.</p>
-                                    )}
-                                </div>
+                                <fieldset style={{ margin: 0 }}>
+                                    <legend className="field-label" style={{ position: 'absolute', left: '-9999px' }}>Standard Prestasi</legend>
+                                    <div className="multi-select-container">
+                                        {availableSPI.length > 0 ? (
+                                            availableSPI.map((spi, idx) => {
+                                                const isSelected = formData.spi.some(item => item.tp === spi.tp && item.desc === spi.desc);
+                                                return (
+                                                    <label key={`${spi.tp}-${idx}`} className={`multi-select-item ${isSelected ? 'selected' : ''}`}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isSelected}
+                                                            onChange={() => handleMultiSelect('spi', spi)}
+                                                        />
+                                                        <span style={{ fontSize: '0.9rem' }}><strong>TP{spi.tp}:</strong> {spi.desc}</span>
+                                                    </label>
+                                                );
+                                            })
+                                        ) : (
+                                            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontStyle: 'italic' }}>
+                                                {isLoadingDskp ? 'Memuatkan standard…' : 'Pilih SK terlebih dahulu.'}
+                                            </p>
+                                        )}
+                                    </div>
+                                </fieldset>
                             </div>
                         </motion.div>
                     )}
@@ -721,16 +785,19 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                                     name="objektif" 
                                     value={formData.objektif} 
                                     onChange={handleChange} 
-                                    rows={3} 
-                                    required 
-                                    className="font-jawi" 
+                                    rows={3}
+                                    required
+                                    className="font-jawi"
+                                    {...invalid('objektif')}
                                     ref={firstFieldRef as React.Ref<HTMLTextAreaElement>}
                                 />
+                                <FieldError name="objektif" />
                             </div>
 
                             <div className="input-group">
                                 <label htmlFor="aktiviti">Aktiviti</label>
-                                <textarea id="aktiviti" name="aktiviti" value={formData.aktiviti} onChange={handleChange} rows={4} required className="font-jawi" />
+                                <textarea id="aktiviti" name="aktiviti" value={formData.aktiviti} onChange={handleChange} rows={4} required className="font-jawi" {...invalid('aktiviti')} />
+                                <FieldError name="aktiviti" />
                             </div>
 
                             <div className="input-group">
@@ -756,43 +823,51 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                             }}>
                                 <h3 id="summary-title" style={{ marginBottom: '1rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>Semakan Rekod</h3>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6" tabIndex={0} ref={firstFieldRef as React.Ref<HTMLDivElement>}>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" tabIndex={0} ref={firstFieldRef as React.Ref<HTMLDivElement>}>
                                     <div>
-                                        <p style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>Tarikh & Masa</p>
+                                        <p className="field-label">Tarikh & Masa</p>
                                         <p>{formData.tarikh} ({formData.hari})</p>
                                         <p>{formData.masa}</p>
+                                        <button type="button" className="btn btn-outline btn-sm mt-2" onClick={() => setCurrentStep(1)}>
+                                            Ubah maklumat asas
+                                        </button>
                                     </div>
                                     <div>
-                                        <p style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>Kelas & Subjek</p>
+                                        <p className="field-label">Kelas & Subjek</p>
                                         <p>{formData.kelas}</p>
                                         <p>{formData.subjek} (Tahun {selectedYear})</p>
                                     </div>
                                 </div>
 
-                                <div style={{ marginBottom: '1.5rem' }}>
-                                    <p style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>DSKP</p>
+                                <div style={{ marginBottom: '1rem' }}>
+                                    <p className="field-label">DSKP</p>
                                     {formData.bidang && <p><strong>Bidang:</strong> {formData.bidang}</p>}
                                     <p><strong>SK:</strong> {formData.tajukStandardKandungan}</p>
-                                    <p><strong>SP:</strong> {formData.sp.join(', ')}</p>
+                                    <p><strong>SP:</strong> {formData.sp.join('; ') || '—'}</p>
+                                    <p>
+                                        <strong>SPI:</strong>{' '}
+                                        {formData.spi.length > 0 ? formData.spi.map(item => `TP${item.tp} — ${item.desc}`).join('; ') : '—'}
+                                    </p>
+                                    <button type="button" className="btn btn-outline btn-sm mt-2" onClick={() => setCurrentStep(2)}>
+                                        Ubah DSKP
+                                    </button>
                                 </div>
 
                                 <div style={{ marginBottom: '1rem' }}>
-                                    <p style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>Kandungan</p>
+                                    <p className="field-label">Kandungan</p>
                                     <div className="font-jawi" style={{ marginTop: '0.5rem', whiteSpace: 'pre-wrap' }}>
-                                        <strong>Objektif:</strong><br />
-                                        {formData.objektif}
+                                        <strong>Objektif:</strong><br />{formData.objektif}
                                     </div>
+                                    <div className="font-jawi mt-4" style={{ whiteSpace: 'pre-wrap' }}>
+                                        <strong>Aktiviti:</strong><br />{formData.aktiviti}
+                                    </div>
+                                    <div className="font-jawi mt-4" style={{ whiteSpace: 'pre-wrap' }}>
+                                        <strong>Refleksi:</strong><br />{formData.refleksi || '—'}
+                                    </div>
+                                    <button type="button" className="btn btn-outline btn-sm mt-2" onClick={() => setCurrentStep(3)}>
+                                        Ubah kandungan
+                                    </button>
                                 </div>
-                                
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1.5rem', fontWeight: 600 }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.status === 'published'}
-                                        onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.checked ? 'published' : 'draft' }))}
-                                        style={{ width: '20px', height: '20px' }}
-                                    />
-                                    Tandakan rekod ini sebagai Diterbitkan
-                                </label>
 
                                 <p style={{ fontSize: '0.875rem', color: '#64748b', fontStyle: 'italic', marginTop: '2rem' }}>
                                     Sila pastikan semua maklumat adalah betul sebelum menyimpan.
@@ -842,7 +917,12 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
 
             {/* Print Preview Modal */}
             {showPrintModal && (
-                <div className="print-preview-backdrop" style={{
+                <div
+                    className="print-preview-backdrop"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Pratonton cetakan"
+                    style={{
                     position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
                     backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
                     alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem'
@@ -851,17 +931,21 @@ export const RPHForm: React.FC<RPHFormProps> = ({ onSubmit, onCancel, initialDat
                         backgroundColor: 'white', width: '100%', maxWidth: '800px',
                         maxHeight: '90vh', overflowY: 'auto', padding: '2rem', position: 'relative'
                     }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
-                            <button className="btn btn-outline" onClick={() => setShowPrintModal(false)}><X size={18} /> Tutup</button>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                            <button type="button" className="btn btn-outline" onClick={() => setShowPrintModal(false)} autoFocus>
+                                <X size={18} aria-hidden="true" /> Tutup
+                            </button>
                             <div style={{ display: 'flex', gap: '0.75rem' }}>
-                                <button className="btn btn-outline" onClick={handleDownloadPDF} disabled={isGeneratingPDF}>
+                                <button type="button" className="btn btn-outline" onClick={handleDownloadPDF} disabled={isGeneratingPDF}>
                                     {isGeneratingPDF ? (
                                         <><Loader2 className="animate-spin" size={18} /> Menjana...</>
                                     ) : (
                                         <><Download size={18} /> Muat Turun PDF</>
                                     )}
                                 </button>
-                                <button className="btn btn-primary" onClick={() => window.print()}><Printer size={18} /> Cetak</button>
+                                <button type="button" className="btn btn-primary" onClick={() => window.print()}>
+                                    <Printer size={18} aria-hidden="true" /> Cetak
+                                </button>
                             </div>
                         </div>
                         <RPHPrintLayout record={{ 

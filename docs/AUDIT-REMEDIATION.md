@@ -37,3 +37,48 @@ Rujukan: `Audit-Keselamatan-Kefungsian-SRIK-eRPH-2026-10-27.md`.
 3. **CI (GitHub Actions)** dan ujian E2E Playwright untuk aliran login → rekod → PDF.
 4. **Migrasi data legasi** — jika ada data Supabase/SQLite sebenar, eksport dan import
    mengikut Bahagian 1A.5 laporan; ID pengguna mesti dipetakan sebelum RPH diimport.
+
+---
+
+# Audit UI/UX (28 Okt 2026)
+
+Rujukan: `Audit-UIUX-SRIK-eRPH-2026-10-28.md`.
+
+| ID | Dapatan | Status | Pembetulan |
+|---|---|---|---|
+| K-01 | 109 kelas Tailwind tidak ditakrif | **Selesai** | `src/index.css` ditulis semula: komponen (`btn-primary`, `btn-outline`, `input-group`, `modal-panel`, `badge-*`, `toast-*`, `bottom-nav`) + utiliti yang benar-benar digunakan. `@keyframes spin` ditambah |
+| K-02 | Fokus & kontras kawalan | **Selesai** | `:focus-visible` global 3 px; `--border-control: #64748b`; `aria-invalid` bergaya; sempadan kad `--border-subtle` |
+| K-03 | SP/SPI/Masa tidak boleh guna papan kekunci | **Selesai** | Diganti dengan `<fieldset>`/`<legend>` + `<input type="checkbox">` natif |
+| T-01 | Selector `input` merosakkan checkbox | **Selesai** | `input:not([type=checkbox]):not([type=radio])`; checkbox 1.25 rem, `accent-color` |
+| T-02 | Modal tanpa semantik/Esc/perangkap fokus | **Selesai** | Satu `<Modal>` berasaskan `<dialog>` (`src/components/Modal.tsx` + `ConfirmDialog`), digunakan oleh DSKP, padam, admin, PDF |
+| T-03 | Butang ikon tanpa nama | **Selesai** | `aria-label` berkonteks (“Padam rekod 2026-10-27 3A Sains”), label teks pada butang Edit/Padam/Cetak |
+| T-04 | Header/tab/stepper melimpah pada mobil | **Selesai** | Header flex-wrap; tab bar boleh skrol; navigasi bawah (bottom nav) pada <768 px; padding kad 1 rem |
+| T-05 | Tiada routing | **Selesai** | Hash router (`#/rekod`, `#/rekod-baru`, `#/edit/:id`, `#/dskp`, `#/tetapan`, `#/pengguna`) + ujian |
+| T-06 | Bundle 2.39 MB | **Selesai** | `React.lazy` untuk DSKP/Admin/Settings; `exceljs` & `pdfmake` diimport semasa butang ditekan. Bundle utama **377 kB (118 kB gzip)** |
+| T-07 | `alert()`/`confirm()`, tiada maklum balas | **Selesai** | Toast `role="status"` + dialog pengesahan; “Rekod berjaya disimpan.” selepas simpan |
+| T-08 | Langkah Semakan tidak lengkap | **Selesai** | SPI, Aktiviti, Refleksi dipaparkan; butang “Ubah …” setiap seksyen |
+| T-09 | Validasi generik | **Selesai** | Ralat sebaris per medan, `aria-invalid`/`aria-describedby`, fokus ke medan pertama tidak sah, teks bantu (“Pilih tahun dahulu”) |
+| T-10 | `<html lang="en">` | **Selesai** | `lang="ms"` |
+| T-11 | framer-motion abaikan reduced-motion | **Selesai** | `<MotionConfig reducedMotion="user">` dalam `main.tsx` |
+| S-01 | Label tidak berkait | **Selesai** | `htmlFor`/`id` pada Tetapan, modal DSKP, carian |
+| S-02 | Tab bukan navigasi | **Selesai** | `<nav aria-label="Navigasi utama">` + `aria-current="page"` (desktop & bottom nav) |
+| S-03 | Skrin menunggu kelulusan pasif | **Selesai** | Butang “Semak status” + “Log Keluar” |
+| S-04 | Panel Pengguna tanpa pengesahan | **Selesai** | Dialog pengesahan, akaun sendiri dikunci, `pending` diisih dahulu + lencana kiraan, kad pada mobil |
+| S-05 | Log masuk/Daftar | **Selesai** | Togol papar kata laluan, “Lupa kata laluan?” (`/api/auth/forgot-password`), ikon kejayaan `CheckCircle2`, hint 8 aksara awal, `autoComplete="name"` |
+| S-06 | Draf senyap | **Selesai** | Sepanduk “Draf dipulihkan” + butang “Mula baru” |
+| S-07 | Token tidak konsisten | **Selesai (sebahagian)** | Token semantik (`--danger`, `--success`, `--border-subtle`, `--border-control`, `--text-muted`), kelas menggantikan gaya inline dalam komponen yang ditulis semula |
+| S-08 | Fon Google tidak digunakan | **Selesai** | `@fontsource/plus-jakarta-sans` (400/600/700), `.font-jawi` hanya pada teks Jawi, `@import` Google dibuang |
+| S-09 | Glassmorphism pada setiap kad | **Selesai** | Permukaan pepejal + bayang ringan; tiada `backdrop-filter` |
+| S-10 | Aliran PDF 3 lapis | **Selesai (sebahagian)** | Label butang jelas: “Muat Turun Halaman Ini — N Rekod (Excel)” vs “Muat Turun N Rekod (PDF)”; modal PDF dikekalkan untuk pratonton |
+| S-11 | Paginasi merender semua nombor | **Selesai** | Tetingkap nombor + “Halaman X / Y” + `aria-current="page"` + label butang |
+| S-12 | Status tiada dalam jadual | **Selesai** | Lajur/lencana Status dalam jadual dan kad |
+| S-13 | Edit/Padam ikon 16 px bersebelahan | **Selesai** | Butang teks + ikon, sasaran 44 px |
+| S-14 | Teks 12 px | **Selesai** | `text-xs` = 0.8125 rem; label guna `--text-muted` |
+| R-01 | Tiada mod gelap | **Ditangguh** | Token semantik sudah sedia untuk mod gelap |
+| R-02 | `<title>` statik / tiada h1 pada login | **Selesai** | `document.title` ikut laluan; `h1` pada login |
+| R-03 | Skrin loading/ralat tanpa semantik | **Selesai** | `<PageLoading>` (`role="status"`) dan `<PageError>` (`role="alert"`, butang cuba lagi) |
+| R-04 | Tiada PWA/manifest | **Ditangguh** | Cadangan produk; draf masih `localStorage` per pengguna |
+| R-05 | Placeholder kosong tidak konsisten | **Selesai** | Satu konvensyen `—` dalam susun atur cetak |
+
+**Belum disahkan secara dinamik:** tiada ujian pelayar/Lighthouse/axe/NVDA dijalankan dalam persekitaran ini.
+Semak senarai pengesahan dalam laporan UI/UX (360 px, 1280 px, wizard dengan papan kekunci, zum 200 %).

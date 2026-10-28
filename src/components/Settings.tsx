@@ -126,23 +126,13 @@ export const Settings: React.FC = () => {
 
                 <form onSubmit={handleUsernameChange}>
                     <div style={{ marginBottom: '1.25rem' }}>
-                        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.5rem' }}>
-                            Nama
-                        </label>
+                        <label htmlFor="settings-name" className="field-label">Nama</label>
                         <input
+                            id="settings-name"
                             type="text"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                             placeholder="Nama anda"
-                            style={{
-                                width: '100%',
-                                padding: '0.75rem 1rem',
-                                borderRadius: '0.75rem',
-                                border: '1px solid #e2e8f0',
-                                outline: 'none',
-                                fontSize: '1rem',
-                                transition: 'border-color 0.2s'
-                            }}
                         />
                         <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
                             Nama ini akan dipaparkan di halaman utama
@@ -252,72 +242,45 @@ export const Settings: React.FC = () => {
 
                 <form onSubmit={handlePasswordChange}>
                     <div style={{ marginBottom: '1rem' }}>
-                        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.5rem' }}>
-                            Kata Laluan Semasa
-                        </label>
+                        <label htmlFor="settings-current-password" className="field-label">Kata Laluan Semasa</label>
                         <input
+                            id="settings-current-password"
                             type="password"
+                            autoComplete="current-password"
                             value={currentPassword}
                             onChange={(e) => setCurrentPassword(e.target.value)}
                             placeholder="••••••••"
                             required
-                            style={{
-                                width: '100%',
-                                padding: '0.75rem 1rem',
-                                borderRadius: '0.75rem',
-                                border: '1px solid #e2e8f0',
-                                outline: 'none',
-                                fontSize: '1rem',
-                                transition: 'border-color 0.2s'
-                            }}
                         />
                     </div>
 
                     <div style={{ marginBottom: '1rem' }}>
-                        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.5rem' }}>
-                            Kata Laluan Baru
-                        </label>
+                        <label htmlFor="settings-new-password" className="field-label">Kata Laluan Baru</label>
                         <input
+                            id="settings-new-password"
                             type="password"
+                            autoComplete="new-password"
                             value={newPassword}
                             onChange={(e) => setNewPassword(e.target.value)}
                             placeholder="••••••••"
                             required
-                            minLength={6}
-                            style={{
-                                width: '100%',
-                                padding: '0.75rem 1rem',
-                                borderRadius: '0.75rem',
-                                border: '1px solid #e2e8f0',
-                                outline: 'none',
-                                fontSize: '1rem',
-                                transition: 'border-color 0.2s'
-                            }}
+                            minLength={8}
                         />
                         <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                            Minimum 6 aksara
+                            Minimum 8 aksara. Anda akan dilog keluar selepas menukar kata laluan.
                         </p>
                     </div>
 
                     <div style={{ marginBottom: '1.25rem' }}>
-                        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.5rem' }}>
-                            Sahkan Kata Laluan Baru
-                        </label>
+                        <label htmlFor="settings-confirm-password" className="field-label">Sahkan Kata Laluan Baru</label>
                         <input
+                            id="settings-confirm-password"
                             type="password"
+                            autoComplete="new-password"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             placeholder="••••••••"
                             required
-                            style={{
-                                width: '100%',
-                                padding: '0.75rem 1rem',
-                                borderRadius: '0.75rem',
-                                border: '1px solid #e2e8f0',
-                                outline: 'none',
-                                fontSize: '1rem',
-                                transition: 'border-color 0.2s'
-                            }}
                         />
                     </div>
 
