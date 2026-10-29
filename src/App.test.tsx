@@ -59,6 +59,33 @@ describe('App shell', () => {
     expect(screen.getByRole('button', { name: /Semak status/i })).toBeTruthy();
   });
 
+  it('shows the admin panel for an active admin only', async () => {
+    vi.mocked(api.session).mockResolvedValue({
+      ...activeTeacher,
+      profile: { ...activeTeacher.profile, role: 'admin' },
+    });
+    vi.mocked(api.members).mockResolvedValue({ members: [activeTeacher.profile] });
+    window.location.hash = '#/pengguna';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /Pengurusan Pengguna/i })).toBeTruthy());
+    expect(screen.getAllByRole('button', { name: /^Pengguna$/i }).length).toBeGreaterThan(0);
+    // Own account cannot be modified from the panel.
+    await waitFor(() =>
+      // Rendered once for the mobile card and once for the desktop row.
+      expect(screen.getAllByText(/tidak boleh mengubah status atau peranan akaun sendiri/i).length).toBeGreaterThan(0),
+    );
+  });
+
+  it('hides the admin panel from a teacher who deep-links to it', async () => {
+    vi.mocked(api.session).mockResolvedValue(activeTeacher);
+    window.location.hash = '#/pengguna';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: /eRPH/ })).toBeTruthy());
+    expect(screen.queryByRole('heading', { name: /Pengurusan Pengguna/i })).toBeNull();
+  });
+
   it('navigates by hash to the DSKP view', async () => {
     vi.mocked(api.session).mockResolvedValue(activeTeacher);
     window.location.hash = '#/dskp';
